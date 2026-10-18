@@ -4,7 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>2匹のラングトンのアリ — C++解析</title>
-  <link rel="stylesheet" href="/style.css">
+  <!-- パスを /style.css から ./style.css に変更 -->
+  <link rel="stylesheet" href="./style.css">
 </head>
 <body>
   <header>
@@ -36,7 +37,7 @@
     <section class="layout">
       <div class="panel board-panel">
         <div class="section-heading"><div><h2>盤面</h2><span class="muted">白＝白マス、黒＝黒マス、薄橙＝ハイウェイとして記録した経路</span></div><span id="runStatus" class="status-pill">停止中</span></div>
-        <div id="boardWrap" class="board-wrap"><canvas id="board" aria-label="ラングトンのアリの盤面"></canvas><div id="loading" class="loading">C++サーバーに接続中…</div></div>
+        <div id="boardWrap" class="board-wrap"><canvas id="board" aria-label="ラングトンのアリの盤面"></canvas><div id="loading" class="loading">Wasmを読み込み中…</div></div>
         <div class="legend"><span><i class="legend-ant red"></i>蟻1</span><span><i class="legend-ant blue"></i>蟻2</span><span><i class="legend-box black"></i>黒マス</span><span><i class="legend-box road"></i>ハイウェイ経路</span></div>
       </div>
       <aside class="side-column">
@@ -70,8 +71,11 @@
       <p>ハイウェイ開始歩数は、104歩周期の反復が20周期続いたと確認した後、保存した履歴をさかのぼって反復が始まった推定歩数です。「ハイウェイ経路のマス」は、その開始推定歩数以降に当該の蟻が通ったマスの集合です。ハイウェイ経路以外の黒マス数は、現在の黒マスからその集合を除いて数えます。</p>
       <p>ループ判定は盤面ハッシュを使うため、理論上はハッシュ衝突の可能性があります。実装では独立した2つの64-bitハッシュに、蟻2の相対座標と両方の向きを組み合わせます。間隔・向きを途中変更すると、盤面と総歩数は保ちつつ、検出履歴を新しい状態から取り直します。</p>
     </section>
-    <footer>シミュレーションと解析はC++で実行し、この画面はローカルHTTPサーバー経由で状態を表示します。</footer>
+    <footer>シミュレーションと解析はWebAssembly (C++) で実行しています。</footer>
   </main>
-  <script src="/app.js"></script>
+
+  <!-- WebAssembly (C++) ラッパーとメインスクリプトの読み込み（相対パス） -->
+  <script src="./ant.js"></script>
+  <script src="./app.js"></script>
 </body>
 </html>
