@@ -1,8 +1,8 @@
 (() => {
-  const $ = (id) => document.getElementById(id);
-  const canvas = $('board');
+  const \$ = (id) => document.getElementById(id);
+  const canvas = \$('board');
   const ctx = canvas.getContext('2d');
-  const wrap = $('boardWrap');
+  const wrap = \$('boardWrap');
   let state = null, visible = { black: [], highway: [] };
   let viewX = 0, viewY = 0, cellSize = 10;
   let running = false, pending = false, previousFrame = performance.now();
@@ -10,18 +10,71 @@
   const directionNames = ['上', '右', '下', '左'];
   const formatter = new Intl.NumberFormat('ja-JP');
 
-  Module._step_n(n); // C++側でN歩進める処理を実行
-const next = getWasmState(); // C++側のメモリから最新の状態データを JavaScript オブジェクトとして組み立てる関数
-applyState(next);
+  // ★ Wasm用通信疑似関数（fetchの代わりにC++ Wasmを直接実行する）
+  async function api(path, method='GET', body=null) {
+    // Wasmのロード完了を待機
+    if (!window.wasmReady) {
+      await new Promise((resolve) => {
+        if (typeof Module !== 'undefined' && Module.calledRun) {
+          window.wasmReady = true;
+          resolve();
+        } else {
+          const check = setInterval(() => {
+            if (typeof Module !== 'undefined' && Module.calledRun) {
+              clearInterval(check);
+              window.wasmReady = true;
+              resolve();
+            }
+          }, 30);
+        }
+      });
+    }
+
+    const url = new URL(path, 'http://dummy');
+    const pathname = url.pathname;
+
+    let jsonStr = "";
+
+    if (pathname === '/api/state') {
+      jsonStr = Module.ccall('wasm_get_state', 'string', [], []);
+    } else if (pathname === '/api/visible') {
+      const x0 = parseInt(url.searchParams.get('x0') || '0', 10);
+      const y0 = parseInt(url.searchParams.get('y0') || '0', 10);
+      const w = parseInt(url.searchParams.get('w') || '10', 10);
+      const h = parseInt(url.searchParams.get('h') || '10', 10);
+      jsonStr = Module.ccall('wasm_get_visible', 'string', ['number','number','number','number'], [x0, y0, w, h]);
+    } else if (pathname === '/api/step') {
+      const count = body ? (body.count || 1) : 1;
+      jsonStr = Module.ccall('wasm_step', 'string', ['number'], [count]);
+    } else if (pathname === '/api/reset') {
+      const spacing = body ? body.spacing : 10;
+      const dir1 = body ? body.dir1 : 0;
+      const dir2 = body ? body.dir2 : 0;
+      jsonStr = Module.ccall('wasm_reset', 'string', ['number','number','number'], [spacing, dir1, dir2]);
+    } else if (pathname === '/api/spacing') {
+      const spacing = body ? body.spacing : 10;
+      jsonStr = Module.ccall('wasm_set_spacing', 'string', ['number'], [spacing]);
+    } else if (pathname === '/api/direction') {
+      const ant = body ? body.ant : 0;
+      const dir = body ? body.dir : 0;
+      jsonStr = Module.ccall('wasm_set_direction', 'string', ['number','number'], [ant, dir]);
+    } else {
+      throw new Error(`不明なAPIエンドポイント: ${path}`);
+    }
+
+    return JSON.parse(jsonStr);
   }
+
   function fmt(v) { return formatter.format(Number(v || 0)); }
+  
   function setRunning(on) {
     running = on;
-    $('runBtn').textContent = on ? 'Ⅱ 一時停止' : '▶ 実行';
-    $('runStatus').textContent = on ? '実行中' : '停止中';
-    $('runStatus').classList.toggle('active', on);
+    \$('runBtn').textContent = on ? 'Ⅱ 一時停止' : '▶ 実行';
+    \$('runStatus').textContent = on ? '実行中' : '停止中';
+    \$('runStatus').classList.toggle('active', on);
     previousFrame = performance.now();
   }
+
   function centerOnAnts() {
     if (!state) return;
     const rect = canvas.getBoundingClientRect();
@@ -31,6 +84,7 @@ applyState(next);
     viewX = Math.floor(mx - cols / 2);
     viewY = Math.floor(my - rows / 2);
   }
+
   function resizeCanvas() {
     const r = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
@@ -40,6 +94,7 @@ applyState(next);
     if (state) { centerOnAnts(); refreshVisible().catch(showError); }
     draw();
   }
+
   async function refreshVisible() {
     if (!state) return;
     const r = canvas.getBoundingClientRect();
@@ -50,29 +105,30 @@ applyState(next);
     visible = result;
     draw();
   }
+
   function showError(error) {
-    $('loading').textContent = `C++サーバーに接続できません：${error.message}。READMEの手順でサーバーを起動してください。`;
-    $('loading').classList.remove('hidden');
+    \$('loading').textContent = `エラーが発生しました：${error.message}`;
+    \$('loading').classList.remove('hidden');
     setRunning(false);
   }
+
   function applyState(next, recenter=false) {
     state = next;
-    $('loading').classList.add('hidden');
+    \$('loading').classList.add('hidden');
     if (recenter) centerOnAnts();
     updateMetrics();
     refreshVisible().catch(showError);
   }
+
   function updateMetrics() {
     if (!state) return;
-    $('steps').textContent = fmt(state.steps);
-    $('visited').textContent = fmt(state.visitedCells);
-    $('black').textContent = fmt(state.blackCells);
-    $('highwayCells').textContent = fmt(state.highwayCells);
-    $('nonHighwayBlack').textContent = fmt(state.nonHighwayBlackCells);
+    \$('steps').textContent = fmt(state.steps);
+    $('visited').textContent = fmt(state.visitedCells);$('black').textContent = fmt(state.blackCells);
+    $('highwayCells').textContent = fmt(state.highwayCells);$('nonHighwayBlack').textContent = fmt(state.nonHighwayBlackCells);
     for (let i=0; i<2; i++) {
       const a = state.ants[i];
-      $(`ant${i+1}Pos`).textContent = `位置 (${a.x}, ${a.y})・向き ${directionNames[a.dir]}`;
-      const line = $(`ant${i+1}Highway`);
+      \$(`ant${i+1}Pos`).textContent = `位置 (${a.x}, ${a.y})・向き ${directionNames[a.dir]}`;
+      const line = \$(`ant${i+1}Highway`);
       if (a.highway) {
         line.textContent = `周期開始の推定：${fmt(a.highwayStart)}歩（検出確認：${fmt(a.highwayConfirmedAt)}歩）`;
         line.classList.add('success');
@@ -82,7 +138,7 @@ applyState(next);
       }
     }
     const h1=state.ants[0], h2=state.ants[1];
-    const hs=$('highwaySummary');
+    const hs=\$('highwaySummary');
     if(state.bothHighway) {
       hs.textContent = `2匹ともハイウェイを検出。蟻1：開始推定 ${fmt(h1.highwayStart)} 歩、蟻2：開始推定 ${fmt(h2.highwayStart)} 歩。確認に必要だった総歩数：${fmt(Math.max(h1.highwayConfirmedAt,h2.highwayConfirmedAt))} 歩。`;
       hs.className='analysis-result success';
@@ -94,7 +150,7 @@ applyState(next);
       hs.textContent = '検出待ち：各蟻で104歩パターンと移動量の反復を20周期分確認します。';
       hs.className='analysis-result';
     }
-    const l=state.loop, ls=$('loopSummary');
+    const l=state.loop, ls=\$('loopSummary');
     if(l.found) {
       ls.textContent = `既知状態と一致しました。初回：${fmt(l.firstStep)} 歩、再出現：${fmt(l.detectedStep)} 歩、周期：${fmt(l.period)} 歩。`;
       ls.className='analysis-result success';
@@ -103,12 +159,13 @@ applyState(next);
       ls.className='analysis-result';
     }
   }
+
   function draw() {
     const r=canvas.getBoundingClientRect(), w=r.width, h=r.height;
     if(!w || !h) return;
     ctx.clearRect(0,0,w,h); ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
     const cols=Math.ceil(w/cellSize)+1, rows=Math.ceil(h/cellSize)+1;
-    // Highway cells are a translucent warm fill below the black cell drawing.
+
     ctx.fillStyle='#ffe9c7';
     for(const p of visible.highway||[]) {
       const x=(p[0]-viewX)*cellSize, y=(p[1]-viewY)*cellSize;
@@ -134,28 +191,28 @@ applyState(next);
       ctx.beginPath();ctx.arc(cx,cy,rad+1.5,0,Math.PI*2);ctx.strokeStyle=color;ctx.lineWidth=1;ctx.stroke();
     }
   }
+
   async function runBatch(n) {
     if(pending)return;
     pending=true;
     try { const next=await api('/api/step','POST',{count:n}); applyState(next); }
     catch(e){showError(e)} finally {pending=false;}
   }
-  $('runBtn').addEventListener('click',()=>setRunning(!running));
-  $('step1Btn').addEventListener('click',()=>{setRunning(false);runBatch(1)});
-  $('step100Btn').addEventListener('click',()=>{setRunning(false);runBatch(100)});
-  $('step1000Btn').addEventListener('click',()=>{setRunning(false);runBatch(1000)});
-  $('resetBtn').addEventListener('click',async()=>{
+
+  \$('runBtn').addEventListener('click',()=>setRunning(!running));
+  $('step1Btn').addEventListener('click',()=>{setRunning(false);runBatch(1)});$('step100Btn').addEventListener('click',()=>{setRunning(false);runBatch(100)});
+  $('step1000Btn').addEventListener('click',()=>{setRunning(false);runBatch(1000)});$('resetBtn').addEventListener('click',async()=>{
     setRunning(false);
-    try { const next=await api('/api/reset','POST',{spacing:Number($('spacing').value)||10,dir1:Number($('dir1').value),dir2:Number($('dir2').value)}); applyState(next,true); }
+    try { const next=await api('/api/reset','POST',{spacing:Number(\$('spacing').value)||10,dir1:Number($('dir1').value),dir2:Number($('dir2').value)}); applyState(next,true); }
     catch(e){showError(e)}
   });
-  $('speed').addEventListener('input',()=>{$('speedLabel').textContent=fmt($('speed').value)});
+  \$('speed').addEventListener('input',()=>{$('speedLabel').textContent=fmt($('speed').value)});
   $('cellSize').addEventListener('change',()=>{cellSize=Number($('cellSize').value)||10;centerOnAnts();refreshVisible().catch(showError);draw()});
   let spacingDebounce;
-  $('spacing').addEventListener('input',()=>{
+  \$('spacing').addEventListener('input',()=>{
     clearTimeout(spacingDebounce);setRunning(false);
     spacingDebounce=setTimeout(async()=>{
-      const n=Math.max(1,Math.min(1000000,Number($('spacing').value)||1));
+      const n=Math.max(1,Math.min(1000000,Number(\$('spacing').value)||1));
       try {const next=await api('/api/spacing','POST',{spacing:n});applyState(next,true);}
       catch(e){showError(e)}
     },140);
@@ -176,67 +233,16 @@ applyState(next);
   async function animation(now) {
     if(running && !pending && state) {
       const elapsed=Math.min(120,Math.max(0,now-previousFrame));
-      const count=Math.max(1,Math.min(5000,Math.floor(Number($('speed').value)*elapsed/1000)));
+      const count=Math.max(1,Math.min(5000,Math.floor(Number(\$('speed').value)*elapsed/1000)));
       if(elapsed>=16) { previousFrame=now; pending=true; try{applyState(await api('/api/step','POST',{count}));}catch(e){showError(e)}finally{pending=false;} }
     } else previousFrame=now;
     requestAnimationFrame(animation);
   }
+
   async function init(){
-    try { state=await api('/api/state'); cellSize=Number($('cellSize').value)||10; resizeCanvas(); applyState(state,true); requestAnimationFrame(animation); }
+    try { state=await api('/api/state'); cellSize=Number(\$('cellSize').value)||10; resizeCanvas(); applyState(state,true); requestAnimationFrame(animation); }
     catch(e){showError(e)}
   }
+
   init();
 })();
-#include <emscripten.h>
-#include <string>
-
-// ※ 既存の Simulation または Engine インスタンスが `sim` という名前だと仮定します
-// ご自身の C++ の変数名・クラスに合わせて調整してください
-
-extern "C" {
-
-// 1. 現在の状態を取得 (JSON文字列)
-EMSCRIPTEN_KEEPALIVE
-const char* wasm_get_state() {
-    static std::string res;
-    res = sim.getStateJson(); // 既存のJSON出力処理
-    return res.c_str();
-}
-
-// 2. 表示範囲の黒マス・ハイウェイを取得
-EMSCRIPTEN_KEEPALIVE
-const char* wasm_get_visible(int x0, int y0, int w, int h) {
-    static std::string res;
-    res = sim.getVisibleJson(x0, y0, w, h); // 既存の範囲描画JSON出力処理
-    return res.c_str();
-}
-
-// 3. N歩進める
-EMSCRIPTEN_KEEPALIVE
-const char* wasm_step(int count) {
-    sim.step(count);
-    return wasm_get_state();
-}
-
-// 4. リセット
-EMSCRIPTEN_KEEPALIVE
-const char* wasm_reset(int spacing, int dir1, int dir2) {
-    sim.reset(spacing, dir1, dir2);
-    return wasm_get_state();
-}
-
-// 5. 間隔変更
-EMSCRIPTEN_KEEPALIVE
-const char* wasm_set_spacing(int spacing) {
-    sim.setSpacing(spacing);
-    return wasm_get_state();
-}
-
-// 6. 向き変更
-EMSCRIPTEN_KEEPALIVE
-const char* wasm_set_direction(int ant, int dir) {
-    sim.setDirection(ant, dir);
-    return wasm_get_state();
-}
-
-}
