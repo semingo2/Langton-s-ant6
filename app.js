@@ -187,3 +187,56 @@ applyState(next);
   }
   init();
 })();
+#include <emscripten.h>
+#include <string>
+
+// ※ 既存の Simulation または Engine インスタンスが `sim` という名前だと仮定します
+// ご自身の C++ の変数名・クラスに合わせて調整してください
+
+extern "C" {
+
+// 1. 現在の状態を取得 (JSON文字列)
+EMSCRIPTEN_KEEPALIVE
+const char* wasm_get_state() {
+    static std::string res;
+    res = sim.getStateJson(); // 既存のJSON出力処理
+    return res.c_str();
+}
+
+// 2. 表示範囲の黒マス・ハイウェイを取得
+EMSCRIPTEN_KEEPALIVE
+const char* wasm_get_visible(int x0, int y0, int w, int h) {
+    static std::string res;
+    res = sim.getVisibleJson(x0, y0, w, h); // 既存の範囲描画JSON出力処理
+    return res.c_str();
+}
+
+// 3. N歩進める
+EMSCRIPTEN_KEEPALIVE
+const char* wasm_step(int count) {
+    sim.step(count);
+    return wasm_get_state();
+}
+
+// 4. リセット
+EMSCRIPTEN_KEEPALIVE
+const char* wasm_reset(int spacing, int dir1, int dir2) {
+    sim.reset(spacing, dir1, dir2);
+    return wasm_get_state();
+}
+
+// 5. 間隔変更
+EMSCRIPTEN_KEEPALIVE
+const char* wasm_set_spacing(int spacing) {
+    sim.setSpacing(spacing);
+    return wasm_get_state();
+}
+
+// 6. 向き変更
+EMSCRIPTEN_KEEPALIVE
+const char* wasm_set_direction(int ant, int dir) {
+    sim.setDirection(ant, dir);
+    return wasm_get_state();
+}
+
+}
