@@ -10,12 +10,9 @@
   const directionNames = ['上', '右', '下', '左'];
   const formatter = new Intl.NumberFormat('ja-JP');
 
-  async function api(path, method='GET', body=null) {
-    const options = { method, headers: {} };
-    if (body !== null) { options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify(body); }
-    const response = await fetch(path, options);
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-    return response.json();
+  Module._step_n(n); // C++側でN歩進める処理を実行
+const next = getWasmState(); // C++側のメモリから最新の状態データを JavaScript オブジェクトとして組み立てる関数
+applyState(next);
   }
   function fmt(v) { return formatter.format(Number(v || 0)); }
   function setRunning(on) {
