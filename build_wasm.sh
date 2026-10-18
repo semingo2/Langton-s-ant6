@@ -2,6 +2,7 @@
 set -euo pipefail
 
 output_dir="${1:-_site}"
+asset_version="${GITHUB_SHA:-$(date +%s)}"
 mkdir -p "$output_dir"
 
 em++ main.cpp -std=c++17 -O2 \
@@ -11,6 +12,6 @@ em++ main.cpp -std=c++17 -O2 \
   -s EXPORTED_RUNTIME_METHODS='["ccall"]' \
   -o "$output_dir/ant.js"
 
-if [[ "$output_dir" != "." ]]; then
-  cp index.html style.css app.js "$output_dir/"
-fi
+sed "s/__ASSET_VERSION__/${asset_version}/g" index.html > "$output_dir/index.html.tmp"
+mv "$output_dir/index.html.tmp" "$output_dir/index.html"
+cp style.css app.js "$output_dir/"

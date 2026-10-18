@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>2匹のラングトンのアリ — C++解析</title>
-  <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./style.css?v=__ASSET_VERSION__">
 </head>
 <body>
   <header>
@@ -72,8 +72,14 @@
     </section>
     <footer>シミュレーションと解析はC++から生成したWebAssemblyをブラウザー内で実行します。</footer>
   </main>
-  <script>var Module = {};</script>
-  <script src="./ant.js"></script>
-  <script src="./app.js"></script>
+  <script>
+    var Module = {
+      locateFile: function (path, prefix) {
+        return prefix + path + '?v=__ASSET_VERSION__';
+      }
+    };
+  </script>
+  <script src="./ant.js?v=__ASSET_VERSION__"></script>
+  <script src="./app.js?v=__ASSET_VERSION__"></script>
 </body>
 </html>
