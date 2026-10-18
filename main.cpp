@@ -553,7 +553,8 @@ void handleRequest(NativeSocket client) {
         sendResponse(client, 200, "application/json; charset=utf-8",
                      sim.visibleJson(x0, y0, width, height));
     } else if (request.method == "GET" &&
-               (path == "/" || path == "/app.js" || path == "/style.css")) {
+               (path == "/" || path == "/app.js" || path == "/style.css" ||
+                path == "/ant.js" || path == "/ant.wasm")) {
         const std::string filename = path == "/" ? "index.html" : path.substr(1);
         std::ifstream file(filename, std::ios::binary);
         if (!file) {
@@ -563,7 +564,8 @@ void handleRequest(NativeSocket client) {
         const std::string content((std::istreambuf_iterator<char>(file)),
                                   std::istreambuf_iterator<char>());
         const std::string contentType = filename == "index.html" ? "text/html; charset=utf-8" :
-            filename == "app.js" ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8";
+            (filename == "app.js" || filename == "ant.js") ? "text/javascript; charset=utf-8" :
+            filename == "ant.wasm" ? "application/wasm" : "text/css; charset=utf-8";
         sendResponse(client, 200, contentType, content);
     } else if (request.method == "POST") {
         int64_t first = 0, second = 0, third = 0;

@@ -4,3 +4,6 @@ langtons_ant_server.exe
 *.o
 *.out
 .DS_Store
+/ant.js
+/ant.wasm
+/_site/

@@ -10,19 +10,45 @@
   const directionNames = ['上', '右', '下', '左'];
   const formatter = new Intl.NumberFormat('ja-JP');
 
-  // Communicate with the C++ server.
+  const wasmReady = new Promise((resolve, reject) => {
+    if (Module.calledRun) {
+      resolve();
+      return;
+    }
+    Module.onRuntimeInitialized = resolve;
+    Module.onAbort = (reason) => reject(new Error(`WebAssemblyの起動に失敗しました：${reason}`));
+  });
+
   async function api(path, method='GET', body=null) {
-    const options = { method };
-    if (body !== null) {
-      options.headers = { 'Content-Type': 'application/json' };
-      options.body = JSON.stringify(body);
+    await wasmReady;
+    const url = new URL(path, window.location.href);
+    const pathname = url.pathname;
+    let json;
+
+    if (pathname.endsWith('/api/state')) {
+      json = Module.ccall('wasm_get_state', 'string', [], []);
+    } else if (pathname.endsWith('/api/visible')) {
+      const x0 = Number.parseInt(url.searchParams.get('x0') || '0', 10);
+      const y0 = Number.parseInt(url.searchParams.get('y0') || '0', 10);
+      const width = Number.parseInt(url.searchParams.get('w') || '10', 10);
+      const height = Number.parseInt(url.searchParams.get('h') || '10', 10);
+      json = Module.ccall('wasm_get_visible', 'string',
+        ['number', 'number', 'number', 'number'], [x0, y0, width, height]);
+    } else if (pathname.endsWith('/api/step')) {
+      json = Module.ccall('wasm_step', 'string', ['number'], [body?.count ?? 1]);
+    } else if (pathname.endsWith('/api/reset')) {
+      json = Module.ccall('wasm_reset', 'string', ['number', 'number', 'number'],
+        [body?.spacing ?? 10, body?.dir1 ?? 0, body?.dir2 ?? 0]);
+    } else if (pathname.endsWith('/api/spacing')) {
+      json = Module.ccall('wasm_set_spacing', 'string', ['number'], [body?.spacing ?? 10]);
+    } else if (pathname.endsWith('/api/direction')) {
+      json = Module.ccall('wasm_set_direction', 'string', ['number', 'number'],
+        [body?.ant ?? 0, body?.dir ?? 0]);
+    } else {
+      throw new Error(`不明なAPIエンドポイント: ${path}`);
     }
-    const response = await fetch(path, options);
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.error || `HTTP ${response.status}`);
-    }
-    return result;
+
+    return JSON.parse(json);
   }
 
   function fmt(v) { return formatter.format(Number(v || 0)); }

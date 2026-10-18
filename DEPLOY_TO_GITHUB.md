@@ -1,17 +1,13 @@
-# GitHubへ公開する手順（簡易版）
+# GitHub Pagesへ公開する手順
 
-## 1. 新しいリポジトリ
+## 1. リポジトリへプッシュ
 
-GitHubで **New repository** を選び、例 `langtons-ant-cpp` という名前で作成します。公開する場合は Public を選びます。
+プロジェクトをGitHubリポジトリの `main` ブランチにプッシュします。
 
-## 2. ファイルをアップロード
+## 2. Pagesを有効化
 
-このフォルダーにある `main.cpp`, `index.html`, `style.css`, `app.js`, `Dockerfile`, `render.yaml`, `README.md`, `.gitignore` をリポジトリのルートに追加してコミットします。
+リポジトリの **Settings → Pages → Build and deployment → Source** で **GitHub Actions** を選択します。
 
-## 3. サイトのデプロイ
+## 3. デプロイを確認
 
-RenderにサインインしてGitHub連携後、**New → Blueprint** からそのリポジトリを選択し、`render.yaml` を確認してデプロイします。サイトの公開URLはRenderが作成したサービス画面に表示されます。
-
-## なぜGitHub Pagesではないの？
-
-このアプリの計算処理はブラウザー内のJavaScriptではなく、C++で動くHTTPサーバーにあります。GitHub Pagesは静的ファイル配信なので、このサーバーを起動できません。GitHubはソースコードの公開先、RenderはC++サーバーを動かす場所という分担です。
+**Actions** タブの **Build and deploy GitHub Pages** ワークフローが成功したら、`https://<ユーザー名>.github.io/<リポジトリ名>/` を開きます。ワークフローはEmscriptenを使って `main.cpp` をWebAssemblyにビルドし、サイトと一緒にデプロイします。シミュレーションはブラウザー内で実行されます。

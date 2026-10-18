@@ -14,9 +14,10 @@
 
 ## ローカルで実行する（Windows）
 
-g++（MinGW-w64 / MSYS2など）を用意して、プロジェクトフォルダーで実行します。
+g++（MinGW-w64 / MSYS2など）とEmscripten SDKを用意します。Emscripten環境を有効にし、Git BashまたはMSYS2のシェルでWASMを生成してから、サーバーを起動します。
 
 ```bat
+bash build_wasm.sh .
 g++ -std=c++17 -O2 -pthread main.cpp -lws2_32 -o langtons_ant_server.exe
 langtons_ant_server.exe
 ```
@@ -31,23 +32,20 @@ $env:PORT = "8081"
 
 起動時に指定したポートを使用できない場合は、サーバーがエラーを表示して終了します。
 
-## GitHubにコードを公開し、Webサイトとして動かす
+## GitHub Pagesで公開する
 
-**GitHub Pagesだけでは、このC++サーバーは実行できません。** GitHub Pagesは静的ファイルを配信する仕組みで、実行中のC++ HTTPサーバーを起動しないためです。
+GitHub Pagesは静的ファイルを配信します。このプロジェクトではGitHub ActionsがEmscriptenでC++をWebAssemblyにビルドし、HTML・CSS・JavaScriptと一緒にPagesへデプロイします。シミュレーションは各訪問者のブラウザー内で実行されます。
 
-このリポジトリにはRenderでC++サーバーごとホストするための `Dockerfile` と `render.yaml` を入れています。GitHubにはソースコードを公開し、Renderがそのリポジトリからビルドして公開サイトを動かす構成です。
+1. このリポジトリをGitHubにプッシュします。
+2. GitHubリポジトリの **Settings → Pages → Build and deployment → Source** で **GitHub Actions** を選択します。
+3. `main` ブランチへのプッシュ後、**Actions** タブで **Build and deploy GitHub Pages** が成功したことを確認します。
+4. `https://<ユーザー名>.github.io/<リポジトリ名>/` を開きます。
 
-1. GitHubで新しいリポジトリを作成します。
-2. このフォルダー内のファイルをすべてリポジトリのルートにアップロードし、コミットします。
-3. Renderにサインインし、GitHubアカウントを連携します。
-4. Renderで **New → Blueprint** を選び、このリポジトリを指定します。`render.yaml` の内容を確認してデプロイします。
-5. デプロイが成功すると、Renderが発行する `onrender.com` のURLでアクセスできます。
-
-`HOST=0.0.0.0` と `PORT` はホスティング環境用です。ローカル実行時は既定で `127.0.0.1:8080` に待ち受けます。画面はHTTP経由でC++サーバーと通信するため、HTMLファイルを直接開かず、サーバーのURLにアクセスしてください。
+ワークフローが `main` へのプッシュごとにC++を再ビルドして公開します。ローカルでネイティブサーバーを起動する場合は、上記のWindows手順も引き続き利用できます。`build_wasm.sh` はGitHub ActionsとDockerで共有するビルド手順です。
 
 ## 公開時の注意
 
-- **現在の実装はサーバー全体で1つのシミュレーション状態を共有します。** 複数の人が同時に使うと、他の人が進めた歩数や設定変更が全員の画面に影響します。公開デモでは利用者を限定するか、「共有盤面」であることを明記してください。
-- 無料ホスティングには稼働時間・スリープ・処理性能などの制限がある場合があります。公開前にRender側の現在のプラン条件を確認してください。
+- シミュレーション状態は訪問者ごとにブラウザー内で独立しています。
+- GitHub Actionsによる初回デプロイ前に、リポジトリのPages設定でGitHub Actionsを公開元に選択してください。
 - 104歩周期の候補を20周期分確認してから開始歩数を推定します。ループ判定は独立した2つの64-bitハッシュを含む状態比較であり、ハッシュ衝突の可能性は理論上ゼロではありません。
-- 実行・配信経路をHTTPサーバーに統一しています。シミュレーションのルールや解析ロジックは変更していません。
+- `ant.js` と `ant.wasm` はEmscriptenのビルド成果物で、GitHub Actionsが生成します。リポジトリに古い生成ファイルを追加しないでください。
