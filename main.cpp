@@ -1,36 +1,13 @@
 #include <algorithm>
 #include <array>
-#include <atomic>
-#include <cctype>
 #include <cstdint>
-#include <fstream>
-#include <iostream>
 #include <limits>
-#include <mutex>
 #include <sstream>
 #include <string>
-#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include <cstdlib>
-
-#ifdef _WIN32
-  #define NOMINMAX
-  #include <winsock2.h>
-  #include <ws2tcpip.h>
-  using socket_t = SOCKET;
-  static void closeSocket(socket_t s) { closesocket(s); }
-#else
-  #include <sys/types.h>
-  #include <sys/socket.h>
-  #include <netinet/in.h>
-  #include <arpa/inet.h>
-  #include <unistd.h>
-  #include <signal.h>
-  using socket_t = int;
-  static void closeSocket(socket_t s) { close(s); }
-#endif
+#include <emscripten.h>
 
 namespace {
 constexpr uint64_t HIGHWAY_PERIOD = 104;
@@ -108,7 +85,7 @@ struct LoopKeyHash {
 class Simulation {
 public:
     Coord ant[2]{};
-    int dir[2] = {0, 0}; // 0 up, 1 right, 2 down, 3 left
+    int dir[2] = {0, 0};
     int spacing = 10;
     uint64_t totalSteps = 0;
     uint64_t epochStartStep = 0;
@@ -185,14 +162,14 @@ public:
         startNewAnalysisEpoch();
     }
 
-    void repositionSpacing(int newSpacing) {
+    void setSpacing(int newSpacing) {
         spacing = std::clamp(newSpacing, 1, 1000000);
         int64_t x1 = -(static_cast<int64_t>(spacing) / 2);
         ant[0] = {x1, 0}; ant[1] = {x1 + spacing, 0};
         visitedCells.insert(ant[0]); visitedCells.insert(ant[1]);
         startNewAnalysisEpoch();
     }
-    void changeDirection(int idx, int d) {
+    void setDirection(int idx, int d) {
         if (idx < 0 || idx > 1) return;
         dir[idx] = ((d % 4) + 4) % 4;
         startNewAnalysisEpoch();
@@ -278,11 +255,10 @@ public:
     }
 
     void stepOne() {
-        // 両方とも盤面更新前の色を読み、向きと反転対象を決めてから、同時に反転・移動する。
         const bool black0 = isBlack(ant[0]);
         const bool black1 = isBlack(ant[1]);
         const Coord old0 = ant[0], old1 = ant[1];
-        const uint8_t t0 = black0 ? 1 : 0; // 1=左折、0=右折
+        const uint8_t t0 = black0 ? 1 : 0;
         const uint8_t t1 = black1 ? 1 : 0;
         dir[0] = (dir[0] + (black0 ? 3 : 1)) % 4;
         dir[1] = (dir[1] + (black1 ? 3 : 1)) % 4;
@@ -306,10 +282,7 @@ public:
     void runSteps(uint64_t n) { n = std::min<uint64_t>(n, 5000); for (uint64_t i=0; i<n; ++i) stepOne(); }
 
     uint64_t nonHighwayBlackCount() const { return static_cast<uint64_t>(blackCells.size()) - highwayBlackCount; }
-    static std::string dirName(int d) { static const char* names[] = {"上", "右", "下", "左"}; return names[(d%4+4)%4]; }
-    static std::string jsonEscape(const std::string& s) {
-        std::ostringstream o; for (unsigned char c : s) { if (c=='"') o << "\\\""; else if (c=='\\') o << "\\\\"; else if (c=='\n') o << "\\n"; else if (c=='\r') o << "\\r"; else if (c=='\t') o << "\\t"; else if (c < 32) o << ' '; else o << c; } return o.str();
-    }
+
     std::string stateJson() const {
         std::ostringstream o;
         o << "{\"steps\":" << totalSteps
@@ -317,7 +290,7 @@ public:
           << ",\"ants\":["
           << "{\"x\":" << ant[0].x << ",\"y\":" << ant[0].y << ",\"dir\":" << dir[0] << ",\"highway\":" << (hw[0].confirmed?"true":"false") << ",\"highwayStart\":" << (hw[0].confirmed?std::to_string(hw[0].startGlobal):"null") << ",\"highwayConfirmedAt\":" << (hw[0].confirmed?std::to_string(hw[0].confirmedGlobal):"null") << "},"
           << "{\"x\":" << ant[1].x << ",\"y\":" << ant[1].y << ",\"dir\":" << dir[1] << ",\"highway\":" << (hw[1].confirmed?"true":"false") << ",\"highwayStart\":" << (hw[1].confirmed?std::to_string(hw[1].startGlobal):"null") << ",\"highwayConfirmedAt\":" << (hw[1].confirmed?std::to_string(hw[1].confirmedGlobal):"null") << "}],"
-          << "\"blackCells\":" << blackCells.size() << ",\"visitedCells\":" << visitedCells.size()
+          << ",\"blackCells\":" << blackCells.size() << ",\"visitedCells\":" << visitedCells.size()
           << ",\"highwayCells\":" << highwayCells.size() << ",\"nonHighwayBlackCells\":" << nonHighwayBlackCount()
           << ",\"bothHighway\":" << ((hw[0].confirmed && hw[1].confirmed)?"true":"false")
           << ",\"loop\":{\"found\":" << (loopFound?"true":"false") << ",\"firstStep\":" << (loopFound?std::to_string(loopFirstStep):"null") << ",\"detectedStep\":" << (loopFound?std::to_string(loopDetectedStep):"null") << ",\"period\":" << (loopFound?std::to_string(loopPeriod):"null") << "}"
@@ -336,198 +309,53 @@ public:
 };
 
 Simulation sim;
-std::mutex simMutex;
 
-static std::string readFile(const std::string& name) {
-    std::ifstream f(name, std::ios::binary); if (!f) return {};
-    std::ostringstream ss; ss << f.rdbuf(); return ss.str();
-}
-static std::string getQueryValue(const std::string& query, const std::string& key, const std::string& fallback="0") {
-    std::istringstream ss(query); std::string item;
-    while (std::getline(ss, item, '&')) { auto p=item.find('='); if (p!=std::string::npos && item.substr(0,p)==key) return item.substr(p+1); }
-    return fallback;
-}
-static long long numQuery(const std::string& q, const std::string& key, long long fallback=0) {
-    try { auto v=getQueryValue(q,key,std::to_string(fallback)); size_t n=0; long long x=std::stoll(v,&n); return n?x:fallback; } catch(...) { return fallback; }
-}
-static long long numJson(const std::string& body, const std::string& key, long long fallback=0) {
-    std::string tag="\""+key+"\""; auto p=body.find(tag); if(p==std::string::npos) return fallback; p=body.find(':',p+tag.size()); if(p==std::string::npos) return fallback; ++p; while(p<body.size()&&std::isspace(static_cast<unsigned char>(body[p])))++p;
-    try { size_t n=0; long long v=std::stoll(body.substr(p), &n); return n?v:fallback; } catch(...) { return fallback; }
-}
-static std::string contentType(const std::string& p) {
-    if (p.size()>=5 && p.substr(p.size()-5)==".html") return "text/html; charset=utf-8";
-    if (p.size()>=4 && p.substr(p.size()-4)==".css") return "text/css; charset=utf-8";
-    if (p.size()>=3 && p.substr(p.size()-3)==".js") return "application/javascript; charset=utf-8";
-    return "text/plain; charset=utf-8";
-}
-static void sendResponse(socket_t s, int status, const std::string& type, const std::string& body) {
-    std::string reason = status==200?"OK":status==400?"Bad Request":status==404?"Not Found":status==405?"Method Not Allowed":"Internal Server Error";
-    std::ostringstream h; h << "HTTP/1.1 "<<status<<' '<<reason<<"\r\nContent-Type: "<<type<<"\r\nContent-Length: "<<body.size()<<"\r\nCache-Control: no-store\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n\r\n";
-    std::string head=h.str();
-    auto sendBytes=[&](const char* data, size_t len) { size_t sent=0; while(sent<len) { int r=send(s,data+sent,static_cast<int>(std::min<size_t>(len-sent, 1<<20)),0); if(r<=0)break; sent+=static_cast<size_t>(r); } };
-    sendBytes(head.data(),head.size()); sendBytes(body.data(),body.size());
-}
-static std::string mimeSafePath(const std::string& route) {
-    if (route=="/" || route=="/index.html") return "index.html";
-    if (route=="/style.css") return "style.css";
-    if (route=="/app.js") return "app.js";
-    return {};
-}
-static void handleClient(socket_t s) {
-    std::string req; req.reserve(8192); char buf[4096]; size_t headerEnd=std::string::npos; size_t expected=0;
-    while (req.size() < 2*1024*1024) {
-        int n=recv(s,buf,sizeof(buf),0); if(n<=0) { closeSocket(s); return; }
-        req.append(buf,static_cast<size_t>(n));
-        if (headerEnd==std::string::npos) {
-            headerEnd=req.find("\r\n\r\n");
-            if (headerEnd!=std::string::npos) {
-                std::string header=req.substr(0,headerEnd); auto cp=header.find("Content-Length:");
-                if(cp==std::string::npos) cp=header.find("content-length:");
-                if(cp!=std::string::npos) { cp=header.find(':',cp)+1; while(cp<header.size()&&std::isspace(static_cast<unsigned char>(header[cp])))++cp; try{expected=static_cast<size_t>(std::stoull(header.substr(cp)));}catch(...){expected=0;} }
-            }
-        }
-        if(headerEnd!=std::string::npos && req.size()>=headerEnd+4+expected) break;
-    }
-    if(headerEnd==std::string::npos) { sendResponse(s,400,"text/plain; charset=utf-8","Bad request"); closeSocket(s); return; }
-    std::string header=req.substr(0,headerEnd); std::string body=req.substr(headerEnd+4, expected);
-    std::istringstream hs(header); std::string method,target,version; hs>>method>>target>>version;
-    auto qp=target.find('?'); std::string route=target.substr(0,qp), query=qp==std::string::npos?"":target.substr(qp+1);
-    if(method=="GET" && route.rfind("/api/state",0)==0) {
-        std::lock_guard<std::mutex> lock(simMutex); sendResponse(s,200,"application/json; charset=utf-8",sim.stateJson());
-    } else if(method=="GET" && route=="/api/visible") {
-        int64_t x0=numQuery(query,"x0"),y0=numQuery(query,"y0"),w=numQuery(query,"w",80),h=numQuery(query,"h",45);
-        std::lock_guard<std::mutex> lock(simMutex); sendResponse(s,200,"application/json; charset=utf-8",sim.visibleJson(x0,y0,w,h));
-    } else if(method=="POST" && route=="/api/step") {
-        uint64_t n=static_cast<uint64_t>(std::clamp<long long>(numJson(body,"count",1),1,5000));
-        std::lock_guard<std::mutex> lock(simMutex); sim.runSteps(n); sendResponse(s,200,"application/json; charset=utf-8",sim.stateJson());
-    } else if(method=="POST" && route=="/api/reset") {
-        int sp=static_cast<int>(std::clamp<long long>(numJson(body,"spacing",10),1,1000000)); int d1=static_cast<int>(numJson(body,"dir1",0)), d2=static_cast<int>(numJson(body,"dir2",0));
-        std::lock_guard<std::mutex> lock(simMutex); sim.reset(sp,d1,d2); sendResponse(s,200,"application/json; charset=utf-8",sim.stateJson());
-    } else if(method=="POST" && route=="/api/spacing") {
-        int sp=static_cast<int>(std::clamp<long long>(numJson(body,"spacing",10),1,1000000));
-        std::lock_guard<std::mutex> lock(simMutex); sim.repositionSpacing(sp); sendResponse(s,200,"application/json; charset=utf-8",sim.stateJson());
-    } else if(method=="POST" && route=="/api/direction") {
-        int idx=static_cast<int>(numJson(body,"ant",0)), d=static_cast<int>(numJson(body,"dir",0));
-        std::lock_guard<std::mutex> lock(simMutex); sim.changeDirection(idx,d); sendResponse(s,200,"application/json; charset=utf-8",sim.stateJson());
-    } else if(method=="GET") {
-        std::string path=mimeSafePath(route); if(path.empty()) sendResponse(s,404,"text/plain; charset=utf-8","Not found"); else { auto file=readFile(path); if(file.empty()) sendResponse(s,404,"text/plain; charset=utf-8","File not found. Run the server from its project folder."); else sendResponse(s,200,contentType(path),file); }
-    } else sendResponse(s,405,"text/plain; charset=utf-8","Method not allowed");
-    closeSocket(s);
-}
-}
+} // namespace
 
-int main(int argc, char** argv) {
-    // Local development defaults to loopback. Hosted platforms can set PORT and HOST.
-    int port = 8080;
-    if (const char* envPort = std::getenv("PORT")) {
-        try { port = std::clamp(std::stoi(envPort), 1, 65535); } catch(...) {}
-    }
-    if (argc > 1) { try { port=std::clamp(std::stoi(argv[1]),1,65535); } catch(...){} }
-    std::string bindHost = "127.0.0.1";
-    if (const char* envHost = std::getenv("HOST")) {
-        if (*envHost) bindHost = envHost;
-    }
-#ifdef _WIN32
-    WSADATA wsa; if (WSAStartup(MAKEWORD(2,2), &wsa)!=0) { std::cerr << "Winsock の初期化に失敗しました。\n"; return 1; }
-#else
-    signal(SIGPIPE, SIG_IGN);
-#endif
-    socket_t server=socket(AF_INET,SOCK_STREAM,0);
-#ifdef _WIN32
-    if(server==INVALID_SOCKET) { std::cerr << "ソケットを作成できません。\n"; WSACleanup(); return 1; }
-#else
-    if(server<0) { std::cerr << "ソケットを作成できません。\n"; return 1; }
-#endif
-    int yes=1;
-#ifdef _WIN32
-    setsockopt(server,SOL_SOCKET,SO_REUSEADDR,reinterpret_cast<const char*>(&yes),sizeof(yes));
-#else
-    setsockopt(server,SOL_SOCKET,SO_REUSEADDR,&yes,sizeof(yes));
-#endif
-    sockaddr_in addr{}; addr.sin_family=AF_INET;
-    if (bindHost == "0.0.0.0") {
-        addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    } else if (inet_pton(AF_INET, bindHost.c_str(), &addr.sin_addr) != 1) {
-        std::cerr << "HOSTにはIPv4アドレスを指定してください（例: 127.0.0.1 または 0.0.0.0）。\n";
-        closeSocket(server);
-#ifdef _WIN32
-        WSACleanup();
-#endif
-        return 1;
-    }
-    addr.sin_port=htons(static_cast<uint16_t>(port));
-    if(bind(server,reinterpret_cast<sockaddr*>(&addr),sizeof(addr))<0 || listen(server,32)<0) {
-        std::cerr << "ポート "<<port<<" を使用できません。別のポート番号を指定してください。\n"; closeSocket(server);
-#ifdef _WIN32
-        WSACleanup();
-#endif
-        return 1;
-    }
-    std::cout << "Langton's Ant C++ サーバーを起動しました。\n待受アドレス: "<<bindHost<<":"<<port<<"\n";
-    if (bindHost == "127.0.0.1") std::cout << "ブラウザーで http://127.0.0.1:"<<port<<" を開いてください。\n";
-    std::cout << "終了するには Ctrl+C を押してください。\n" << std::flush;
-    while(true) {
-        sockaddr_in clientAddr{};
-#ifdef _WIN32
-        int clientLen=sizeof(clientAddr);
-#else
-        socklen_t clientLen=sizeof(clientAddr);
-#endif
-        socket_t client=accept(server,reinterpret_cast<sockaddr*>(&clientAddr),&clientLen);
-#ifdef _WIN32
-        if(client==INVALID_SOCKET) continue;
-#else
-        if(client<0) continue;
-#endif
-        std::thread(handleClient,client).detach();
-    }
-    closeSocket(server);
-#ifdef _WIN32
-    WSACleanup();
-#endif
-    return 0;
-}
-#include <emscripten.h>
-#include <vector>
-
-// 蟻の状態や盤面（簡易例）
-struct Ant {
-    int x = 0;
-    int y = 0;
-    int dir = 0; // 0:上, 1:右, 2:下, 3:左
-};
-
-static Ant ant1;
-static long long total_steps = 0;
-
+// WebAssembly (JavaScript) 連携用 C関数群
 extern "C" {
 
-// 初期化関数
 EMSCRIPTEN_KEEPALIVE
-void init_simulation() {
-    ant1.x = 0;
-    ant1.y = 0;
-    ant1.dir = 0;
-    total_steps = 0;
+const char* wasm_get_state() {
+    static std::string res;
+    res = sim.stateJson();
+    return res.c_str();
 }
 
-// N歩一気に進める（JSからの通信オーバーヘッドを減らすためまとめて実行）
 EMSCRIPTEN_KEEPALIVE
-void step_n(int n) {
-    for (int i = 0; i < n; ++i) {
-        // --- ここにラングトンのアリの移動・盤面更新ロジックを書く ---
-        total_steps++;
-    }
+const char* wasm_get_visible(int x0, int y0, int w, int h) {
+    static std::string res;
+    res = sim.visibleJson(x0, y0, w, h);
+    return res.c_str();
 }
 
-// 状態取得用
 EMSCRIPTEN_KEEPALIVE
-int get_ant1_x() { return ant1.x; }
+const char* wasm_step(int count) {
+    sim.runSteps(count);
+    return wasm_get_state();
+}
 
 EMSCRIPTEN_KEEPALIVE
-int get_ant1_y() { return ant1.y; }
+const char* wasm_reset(int spacing, int dir1, int dir2) {
+    sim.reset(spacing, dir1, dir2);
+    return wasm_get_state();
+}
 
 EMSCRIPTEN_KEEPALIVE
-long long get_total_steps() { return total_steps; }
+const char* wasm_set_spacing(int spacing) {
+    sim.setSpacing(spacing);
+    return wasm_get_state();
+}
 
+EMSCRIPTEN_KEEPALIVE
+const char* wasm_set_direction(int ant, int dir) {
+    sim.setDirection(ant, dir);
+    return wasm_get_state();
+}
+
+}
+
+int main() {
+    // Wasmビルド用のメイン関数（サーバー起動処理などは行いません）
+    return 0;
 }
