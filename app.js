@@ -10,9 +10,8 @@
   const directionNames = ['上', '右', '下', '左'];
   const formatter = new Intl.NumberFormat('ja-JP');
 
-  // ★ Wasm用通信疑似関数（fetchの代わりにC++ Wasmを直接実行する）
+  // Wasm用通信疑似関数（fetchの代わりにC++ Wasmを直接実行する）
   async function api(path, method='GET', body=null) {
-    // Wasmのロード完了を待機
     if (!window.wasmReady) {
       await new Promise((resolve) => {
         if (typeof Module !== 'undefined' && Module.calledRun) {
@@ -32,7 +31,6 @@
 
     const url = new URL(path, 'http://dummy');
     const pathname = url.pathname;
-
     let jsonStr = "";
 
     if (pathname === '/api/state') {
